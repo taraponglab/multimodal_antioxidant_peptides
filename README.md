@@ -1,5 +1,3 @@
-# multimodal_antioxidant_peptides
-
 # Advancing Antioxidant Peptide Discovery: A Deep Multimodal Approach for Accurate Prediction and Generation of Novel Candidates
 
 ![Abstract Graphic](graphic_ADPs.png)
