@@ -15,7 +15,7 @@ Source codes and dataset is available in this repository.
 #### Package version
 Rdkit: v.2024.9.4; Scikit-learn: v1.5.2; Tensorflow: v2.17.0; Numpy: v.1.26.4.
 
-BioPython: v1.82; STREME (Sensitive, Thorough, Rapid, Enriched Motif Elicitation) v5.5.7; AlphaFold v3.0; py3Dmol 2.1.0.
+BioPython: v1.82; AlphaFold v3.0; py3Dmol 2.1.0.
 
 #### License
 
