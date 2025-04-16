@@ -1,6 +1,6 @@
 # Advancing Antioxidant Peptide Discovery: A Deep Multimodal Approach for Accurate Prediction and Generation of Novel Candidates
 
-![Abstract Graphic](graphic_ADPs.png)
+![Abstract Graphic](AOP_graphic.png)
 
 #### Huynh Anh Duy*, Tarapong Srisongkram** 
 
