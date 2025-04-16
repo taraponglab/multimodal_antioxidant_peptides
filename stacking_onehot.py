@@ -125,7 +125,7 @@ def run_stacking(X_train, y_train, X_test, y_test, n_repeats=3):
 
 # ====== Main Execution ======
 def main():
-    # Đọc dữ liệu
+    # Read CSV files
     X_train_df = pd.read_csv("Antiox_x_train_onehot.csv")
     y_train = pd.read_csv("Antiox_y_train_onehot.csv").values.ravel()
     X_test_df = pd.read_csv("Antiox_x_test_onehot.csv")
@@ -134,13 +134,13 @@ def main():
     X_train = X_train_df.values
     X_test = X_test_df.values
 
-    # Tính số chiều (flattened = max_length * 20)
+    # Determine the dimensionality (flattened = max_length * 20)
     total_features = X_train.shape[1]
-    assert total_features % 20 == 0, "⚠️ Tổng số đặc trưng không chia hết cho 20 → one-hot sai!"
+    assert total_features % 20 == 0, "⚠️ Error!!!"
 
     max_length = total_features // 20
 
-    # Reshape về 3D: [samples, max_length, 20]
+    # 3D reshape: [samples, max_length, 20]
     X_train = X_train.reshape((-1, max_length, 20))
     X_test = X_test.reshape((-1, max_length, 20))
 
@@ -148,7 +148,7 @@ def main():
     print("  X_train:", X_train.shape)
     print("  X_test :", X_test.shape)
 
-    # Chạy mô hình stacking
+    # Run stacking model
     run_stacking(X_train, y_train, X_test, y_test, n_repeats=3)
 
 if __name__ == "__main__":
