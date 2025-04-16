@@ -1,4 +1,4 @@
-# Advancing Antioxidant Peptide Discovery: A Deep Multimodal Approach for Accurate Prediction and Generation of Novel Candidates
+# High-confidence prediction and generation of antioxidant peptide candidates using a multimodal framework
 
 ![Abstract Graphic](AOP_graphic.png)
 
