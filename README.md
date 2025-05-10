@@ -1,4 +1,4 @@
-# High-confidence prediction and generation of antioxidant peptide candidates using a multimodal framework
+# Accurate Structure-Activity Relationship Prediction of Antioxidant Peptides Using a Multimodal Deep Learning Framework
 
 ![Abstract Graphic](AOP_graphic.png)
 
