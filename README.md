@@ -12,7 +12,7 @@
 
 Source codes and data set is available in this repository.
 
-This article has been published in **Journal of Cheminformatics** and can be found at URL: 
+This article has been published in **Journal of Cheminformatics** and can be found at URL: https://doi.org/10.1186/s13321-025-01102-4
 
 #### Package version
 Rdkit: v.2024.9.4; Scikit-learn: v1.5.2; Tensorflow: v2.17.0; Numpy: v.1.26.4.
