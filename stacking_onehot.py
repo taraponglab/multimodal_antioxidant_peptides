@@ -4,27 +4,31 @@ import tensorflow as tf
 from tensorflow.keras.models import Sequential, Model
 from tensorflow.keras.layers import (
     Dense, Dropout, Conv1D, MaxPooling1D, Flatten, Bidirectional,
-    LSTM, Input, LayerNormalization, MultiHeadAttention, GlobalAveragePooling1D, Add
+    LSTM, Input, LayerNormalization, MultiHeadAttention,
+    GlobalAveragePooling1D, Add
 )
 from tensorflow.keras.optimizers import Adam
-from sklearn.model_selection import train_test_split
+from tensorflow.keras.callbacks import EarlyStopping
+from sklearn.model_selection import StratifiedKFold
 from sklearn.metrics import (
-    accuracy_score, balanced_accuracy_score, roc_auc_score, matthews_corrcoef,
-    precision_score, recall_score, f1_score, confusion_matrix, average_precision_score
+    accuracy_score, balanced_accuracy_score, roc_auc_score,
+    matthews_corrcoef, precision_score, recall_score,
+    f1_score, confusion_matrix, average_precision_score
 )
 
-# ====== Define Base Models (CNN, BiLSTM, Transformer) ======
+# ====== Base Models ======
 def create_cnn(input_shape):
     model = Sequential([
         Input(shape=input_shape),
-        Conv1D(filters=64, kernel_size=3, activation='relu'),
-        MaxPooling1D(pool_size=2),
+        Conv1D(64, 3, activation='relu'),
+        MaxPooling1D(2),
         Flatten(),
         Dense(100, activation='relu'),
         Dense(1, activation='sigmoid')
     ])
     model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
     return model
+
 
 def create_bilstm(input_shape):
     model = Sequential([
@@ -38,20 +42,19 @@ def create_bilstm(input_shape):
     model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
     return model
 
+
 def create_transformer(input_shape, embed_dim=128, num_heads=4, ff_dim=128):
     inputs = Input(shape=input_shape)
-    x = Conv1D(embed_dim, kernel_size=1, activation='relu')(inputs)
+    x = Conv1D(embed_dim, 1, activation='relu')(inputs)
 
-    attn_output = MultiHeadAttention(num_heads=num_heads, key_dim=embed_dim)(x, x)
-    attn_output = Dropout(0.1)(attn_output)
-    out1 = Add()([x, attn_output])
-    out1 = LayerNormalization(epsilon=1e-6)(out1)
+    attn = MultiHeadAttention(num_heads=num_heads, key_dim=embed_dim)(x, x)
+    attn = Dropout(0.1)(attn)
+    out1 = LayerNormalization(epsilon=1e-6)(Add()([x, attn]))
 
     ffn = Dense(ff_dim, activation='relu')(out1)
     ffn = Dense(embed_dim)(ffn)
     ffn = Dropout(0.1)(ffn)
-    out2 = Add()([out1, ffn])
-    out2 = LayerNormalization(epsilon=1e-6)(out2)
+    out2 = LayerNormalization(epsilon=1e-6)(Add()([out1, ffn]))
 
     x = GlobalAveragePooling1D()(out2)
     x = Dense(64, activation='relu')(x)
@@ -61,71 +64,109 @@ def create_transformer(input_shape, embed_dim=128, num_heads=4, ff_dim=128):
     model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
     return model
 
-# ====== Define Meta Model ======
-def create_meta_model(input_shape):
+
+# ====== Meta Model ======
+def create_meta_model(input_dim):
     model = Sequential([
-        Input(shape=(input_shape,)),
+        Input(shape=(input_dim,)),
         Dense(64, activation='relu'),
         Dense(32, activation='relu'),
         Dense(1, activation='sigmoid')
     ])
-    model.compile(optimizer=Adam(learning_rate=0.001), loss='binary_crossentropy', metrics=['accuracy'])
+    model.compile(optimizer=Adam(0.001), loss='binary_crossentropy', metrics=['accuracy'])
     return model
 
-# ====== Evaluate Metrics ======
+
+# ====== Evaluation ======
 def evaluate_model(y_true, y_pred_prob):
     y_pred = (y_pred_prob > 0.5).astype(int)
+
     tn, fp, fn, tp = confusion_matrix(y_true, y_pred).ravel()
     specificity = tn / (tn + fp) if (tn + fp) > 0 else 0
+
+    if len(np.unique(y_true)) < 2:
+        auc = 0.5
+    else:
+        auc = roc_auc_score(y_true, y_pred_prob)
+
     return {
         "accuracy": accuracy_score(y_true, y_pred),
         "balanced_accuracy": balanced_accuracy_score(y_true, y_pred),
-        "auc": roc_auc_score(y_true, y_pred_prob),
+        "auc": auc,
         "pr_auc": average_precision_score(y_true, y_pred_prob),
         "mcc": matthews_corrcoef(y_true, y_pred),
-        "precision": precision_score(y_true, y_pred),
-        "recall": recall_score(y_true, y_pred),
+        "precision": precision_score(y_true, y_pred, zero_division=0),
+        "recall": recall_score(y_true, y_pred, zero_division=0),
         "specificity": specificity,
-        "f1": f1_score(y_true, y_pred)
+        "f1": f1_score(y_true, y_pred, zero_division=0)
     }
 
-# ====== Run Stacking ======
-def run_stacking(X_train, y_train, X_test, y_test, n_repeats=3):
-    final_results = {metric: [] for metric in ["accuracy", "balanced_accuracy", "auc", "pr_auc", "mcc", "precision", "recall", "specificity", "f1"]}
+
+# ====== OOF STACKING ======
+def run_stacking_oof(X_train, y_train, X_test, y_test, n_splits=5, n_repeats=3):
+
+    results = {k: [] for k in [
+        "accuracy", "balanced_accuracy", "auc", "pr_auc",
+        "mcc", "precision", "recall", "specificity", "f1"
+    ]}
 
     for repeat in range(n_repeats):
-        print(f"\n===== Training Run {repeat+1}/{n_repeats} =====")
+        print(f"\n===== Run {repeat+1}/{n_repeats} =====")
 
-        models = [
-            create_cnn(X_train.shape[1:]),
-            create_bilstm(X_train.shape[1:]),
-            create_transformer(X_train.shape[1:])
-        ]
+        skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=42 + repeat)
 
-        model_preds = []
-        for model in models:
-            model.fit(X_train, y_train, epochs=30, batch_size=32, verbose=0)
-            model_preds.append(model.predict(X_test).flatten())
+        n_models = 3
+        meta_X_train = np.zeros((X_train.shape[0], n_models))
+        meta_X_test = np.zeros((X_test.shape[0], n_models))
 
-        meta_X = np.column_stack(model_preds)
-        meta_model = create_meta_model(meta_X.shape[1])
-        meta_model.fit(meta_X, y_test, epochs=50, batch_size=32, verbose=0)
+        for fold, (train_idx, val_idx) in enumerate(skf.split(X_train, y_train)):
+            print(f"  Fold {fold+1}/{n_splits}")
 
-        meta_y_pred_prob = meta_model.predict(meta_X).flatten()
-        metrics = evaluate_model(y_test, meta_y_pred_prob)
+            tf.keras.backend.clear_session()
 
-        for metric in final_results:
-            final_results[metric].append(metrics[metric])
+            X_tr, X_val = X_train[train_idx], X_train[val_idx]
+            y_tr, y_val = y_train[train_idx], y_train[val_idx]
 
-        print(f"→ Accuracy: {metrics['accuracy']:.3f}, AUROC: {metrics['auc']:.3f}, AUPRC: {metrics['pr_auc']:.3f}, MCC: {metrics['mcc']:.3f}")
+            models = [
+                create_cnn(X_tr.shape[1:]),
+                create_bilstm(X_tr.shape[1:]),
+                create_transformer(X_tr.shape[1:])
+            ]
 
-    print("\n=== Final Evaluation (Mean ± Std) ===")
-    for metric, values in final_results.items():
-        print(f"{metric.capitalize():18}: {np.mean(values):.3f} ± {np.std(values):.3f}")
+            es = EarlyStopping(patience=5, restore_best_weights=True)
 
-# ====== Main Execution ======
+            for i, model in enumerate(models):
+                model.fit(X_tr, y_tr, epochs=30, batch_size=32,
+                          verbose=0, callbacks=[es])
+
+                # 👉 OOF prediction
+                meta_X_train[val_idx, i] = model.predict(X_val).flatten()
+
+                # 👉 test prediction (average)
+                meta_X_test[:, i] += model.predict(X_test).flatten() / n_splits
+
+        # ===== Train meta trên full OOF =====
+        meta_model = create_meta_model(meta_X_train.shape[1])
+        meta_model.fit(meta_X_train, y_train,
+                       epochs=50, batch_size=32,
+                       verbose=0)
+
+        meta_pred = meta_model.predict(meta_X_test).flatten()
+
+        metrics = evaluate_model(y_test, meta_pred)
+
+        for k in results:
+            results[k].append(metrics[k])
+
+        print(f"→ Acc: {metrics['accuracy']:.3f}, AUC: {metrics['auc']:.3f}, MCC: {metrics['mcc']:.3f}")
+
+    print("\n=== FINAL ===")
+    for k, v in results.items():
+        print(f"{k:18}: {np.mean(v):.3f} ± {np.std(v):.3f}")
+
+
+# ====== MAIN ======
 def main():
-    # Read CSV files
     X_train_df = pd.read_csv("Antiox_x_train_onehot.csv")
     y_train = pd.read_csv("Antiox_y_train_onehot.csv").values.ravel()
     X_test_df = pd.read_csv("Antiox_x_test_onehot.csv")
@@ -134,22 +175,19 @@ def main():
     X_train = X_train_df.values
     X_test = X_test_df.values
 
-    # Determine the dimensionality (flattened = max_length * 20)
     total_features = X_train.shape[1]
-    assert total_features % 20 == 0, "⚠️ Error!!!"
+    assert total_features % 20 == 0, "Sai one-hot!"
 
     max_length = total_features // 20
 
-    # 3D reshape: [samples, max_length, 20]
     X_train = X_train.reshape((-1, max_length, 20))
     X_test = X_test.reshape((-1, max_length, 20))
 
-    print("✅ Input shapes:")
-    print("  X_train:", X_train.shape)
-    print("  X_test :", X_test.shape)
+    print("Shapes:", X_train.shape, X_test.shape)
 
-    # Run stacking model
-    run_stacking(X_train, y_train, X_test, y_test, n_repeats=3)
+    run_stacking_oof(X_train, y_train, X_test, y_test,
+                     n_splits=5, n_repeats=3)
+
 
 if __name__ == "__main__":
     main()
