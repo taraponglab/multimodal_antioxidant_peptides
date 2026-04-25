@@ -1,6 +1,8 @@
+import argparse
 import numpy as np
 import pandas as pd
 import tensorflow as tf
+
 from tensorflow.keras.models import Sequential, Model
 from tensorflow.keras.layers import (
     Dense, Dropout, Conv1D, MaxPooling1D, Flatten, Bidirectional,
@@ -9,6 +11,7 @@ from tensorflow.keras.layers import (
 )
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.callbacks import EarlyStopping
+
 from sklearn.model_selection import StratifiedKFold
 from sklearn.metrics import (
     accuracy_score, balanced_accuracy_score, roc_auc_score,
@@ -16,7 +19,9 @@ from sklearn.metrics import (
     f1_score, confusion_matrix, average_precision_score
 )
 
-# ====== Base Models ======
+# =========================
+# Models
+# =========================
 def create_cnn(input_shape):
     model = Sequential([
         Input(shape=input_shape),
@@ -65,7 +70,6 @@ def create_transformer(input_shape, embed_dim=128, num_heads=4, ff_dim=128):
     return model
 
 
-# ====== Meta Model ======
 def create_meta_model(input_dim):
     model = Sequential([
         Input(shape=(input_dim,)),
@@ -77,17 +81,36 @@ def create_meta_model(input_dim):
     return model
 
 
-# ====== Evaluation ======
+# =========================
+# Utils
+# =========================
+def load_data(train_x, train_y, test_x, test_y):
+    X_train = pd.read_csv(train_x).values
+    y_train = pd.read_csv(train_y).values.ravel()
+    X_test = pd.read_csv(test_x).values
+    y_test = pd.read_csv(test_y).values.ravel()
+    return X_train, y_train, X_test, y_test
+
+
+def reshape_data(X_train, X_test, num_channels=20):
+    total_features = X_train.shape[1]
+    assert total_features % num_channels == 0, "Invalid feature shape"
+
+    max_length = total_features // num_channels
+
+    X_train = X_train.reshape((-1, max_length, num_channels))
+    X_test = X_test.reshape((-1, max_length, num_channels))
+
+    return X_train, X_test
+
+
 def evaluate_model(y_true, y_pred_prob):
     y_pred = (y_pred_prob > 0.5).astype(int)
 
     tn, fp, fn, tp = confusion_matrix(y_true, y_pred).ravel()
     specificity = tn / (tn + fp) if (tn + fp) > 0 else 0
 
-    if len(np.unique(y_true)) < 2:
-        auc = 0.5
-    else:
-        auc = roc_auc_score(y_true, y_pred_prob)
+    auc = roc_auc_score(y_true, y_pred_prob) if len(np.unique(y_true)) > 1 else 0.5
 
     return {
         "accuracy": accuracy_score(y_true, y_pred),
@@ -102,7 +125,9 @@ def evaluate_model(y_true, y_pred_prob):
     }
 
 
-# ====== OOF STACKING ======
+# =========================
+# OOF STACKING
+# =========================
 def run_stacking_oof(X_train, y_train, X_test, y_test, n_splits=5, n_repeats=3):
 
     results = {k: [] for k in [
@@ -115,9 +140,8 @@ def run_stacking_oof(X_train, y_train, X_test, y_test, n_splits=5, n_repeats=3):
 
         skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=42 + repeat)
 
-        n_models = 3
-        meta_X_train = np.zeros((X_train.shape[0], n_models))
-        meta_X_test = np.zeros((X_test.shape[0], n_models))
+        meta_X_train = np.zeros((X_train.shape[0], 3))
+        meta_X_test = np.zeros((X_test.shape[0], 3))
 
         for fold, (train_idx, val_idx) in enumerate(skf.split(X_train, y_train)):
             print(f"  Fold {fold+1}/{n_splits}")
@@ -125,7 +149,7 @@ def run_stacking_oof(X_train, y_train, X_test, y_test, n_splits=5, n_repeats=3):
             tf.keras.backend.clear_session()
 
             X_tr, X_val = X_train[train_idx], X_train[val_idx]
-            y_tr, y_val = y_train[train_idx], y_train[val_idx]
+            y_tr = y_train[train_idx]
 
             models = [
                 create_cnn(X_tr.shape[1:]),
@@ -139,17 +163,12 @@ def run_stacking_oof(X_train, y_train, X_test, y_test, n_splits=5, n_repeats=3):
                 model.fit(X_tr, y_tr, epochs=30, batch_size=32,
                           verbose=0, callbacks=[es])
 
-                # 👉 OOF prediction
                 meta_X_train[val_idx, i] = model.predict(X_val).flatten()
-
-                # 👉 test prediction (average)
                 meta_X_test[:, i] += model.predict(X_test).flatten() / n_splits
 
-        # ===== Train meta trên full OOF =====
         meta_model = create_meta_model(meta_X_train.shape[1])
         meta_model.fit(meta_X_train, y_train,
-                       epochs=50, batch_size=32,
-                       verbose=0)
+                       epochs=50, batch_size=32, verbose=0)
 
         meta_pred = meta_model.predict(meta_X_test).flatten()
 
@@ -165,28 +184,33 @@ def run_stacking_oof(X_train, y_train, X_test, y_test, n_splits=5, n_repeats=3):
         print(f"{k:18}: {np.mean(v):.3f} ± {np.std(v):.3f}")
 
 
-# ====== MAIN ======
+# =========================
+# Main
+# =========================
 def main():
-    X_train_df = pd.read_csv("Antiox_x_train_onehot.csv")
-    y_train = pd.read_csv("Antiox_y_train_onehot.csv").values.ravel()
-    X_test_df = pd.read_csv("Antiox_x_test_onehot.csv")
-    y_test = pd.read_csv("Antiox_y_test_onehot.csv").values.ravel()
+    parser = argparse.ArgumentParser(description="OOF Stacking with Meta Model")
 
-    X_train = X_train_df.values
-    X_test = X_test_df.values
+    parser.add_argument("--train_x", required=True)
+    parser.add_argument("--train_y", required=True)
+    parser.add_argument("--test_x", required=True)
+    parser.add_argument("--test_y", required=True)
 
-    total_features = X_train.shape[1]
-    assert total_features % 20 == 0, "Sai one-hot!"
+    parser.add_argument("--n_splits", type=int, default=5)
+    parser.add_argument("--n_repeats", type=int, default=3)
 
-    max_length = total_features // 20
+    args = parser.parse_args()
 
-    X_train = X_train.reshape((-1, max_length, 20))
-    X_test = X_test.reshape((-1, max_length, 20))
+    X_train, y_train, X_test, y_test = load_data(
+        args.train_x, args.train_y, args.test_x, args.test_y
+    )
 
-    print("Shapes:", X_train.shape, X_test.shape)
+    X_train, X_test = reshape_data(X_train, X_test)
 
-    run_stacking_oof(X_train, y_train, X_test, y_test,
-                     n_splits=5, n_repeats=3)
+    run_stacking_oof(
+        X_train, y_train, X_test, y_test,
+        n_splits=args.n_splits,
+        n_repeats=args.n_repeats
+    )
 
 
 if __name__ == "__main__":
