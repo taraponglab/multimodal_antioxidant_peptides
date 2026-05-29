@@ -1,6 +1,6 @@
-# Deep generative learning and multi-objective screening for the discovery of dual-functional peptides with anticancer and antioxidant activities
+# Accurate structure-activity relationship prediction of antioxidant peptides using a multimodal deep learning framework
 
-![Abstract Graphic](graphic_abstract.png)
+![Abstract Graphic](AOP_graphic.png)
 
 #### Huynh Anh Duy*, Tarapong Srisongkram** 
 
