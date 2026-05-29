@@ -1,6 +1,6 @@
-# Accurate Structure-Activity Relationship Prediction of Antioxidant Peptides Using a Multimodal Deep Learning Framework
+# Deep generative learning and multi-objective screening for the discovery of dual-functional peptides with anticancer and antioxidant activities
 
-![Abstract Graphic](AOP_graphic.png)
+![Abstract Graphic](graphic_abstract.png)
 
 #### Huynh Anh Duy*, Tarapong Srisongkram** 
 
